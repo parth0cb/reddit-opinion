@@ -1,0 +1,49 @@
+# Root-level ignores
+.DS_Store
+.env
+*.log
+*.sqlite3
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+
+# ========================================
+# Backend (Python / FastAPI)
+# ========================================
+backend/__pycache__/
+backend/*.py[cod]
+backend/.env
+backend/venv/
+backend/env/
+backend/.mypy_cache/
+backend/.pytest_cache/
+backend/*.db
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/
+backend/*.egg-info/
+backend/dist/
+backend/build/
+
+# If using Jupyter Notebooks in backend
+backend/*.ipynb
+backend/.ipynb_checkpoints/
+
+# ========================================
+# Frontend (React / Node.js)
+# ========================================
+frontend/node_modules/
+frontend/.env
+frontend/.next/
+frontend/.cache/
+frontend/build/
+frontend/dist/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/package-lock.json
+frontend/.parcel-cache/
+
+# Ignore macOS system files in both
+**/.DS_Store
