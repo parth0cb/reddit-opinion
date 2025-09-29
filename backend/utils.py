@@ -2,6 +2,7 @@ import datetime
 import requests
 import torch
 import time
+import asyncio
 
 from ddgs import DDGS
 from bs4 import BeautifulSoup
@@ -41,15 +42,16 @@ def ensure_scheme(url):
     return url
 
 
-def get_top_reddit_urls(query, num_results=15):
+async def get_top_reddit_urls(query, num_results=15):
     query += " site:reddit.com"
-    with DDGS() as ddgs:
-        try:
-            results = ddgs.text(query, max_results=num_results)
-            urls = [r["href"] for r in results]
-            return urls
-        except Exception:
-            return []
+    def search():
+        with DDGS() as ddgs:
+            try:
+                results = ddgs.text(query, max_results=num_results)
+                return [r["href"] for r in results]
+            except Exception:
+                return []
+    return await asyncio.to_thread(search)
 
 
 def get_text_chunks(text, max_tokens=256, url=""):

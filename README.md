@@ -59,7 +59,7 @@ The application consists of:
 
 4. Run the backend server:
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000
+   uvicorn main:app
    ```
    
    The backend will start on `http://localhost:8000`

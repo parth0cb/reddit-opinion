@@ -29,14 +29,28 @@ function App() {
 
   // check if user is already logged in
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const decoded = jwtDecode(token);
-      } catch (error) {
-        localStorage.removeItem('token');
+    const verifyToken = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsLoggedIn(false);
+        return;
       }
-    }
+
+      try {
+        await axios.get('http://localhost:8000/auth/verify', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        setIsLoggedIn(true);
+      } catch (error) {
+        console.error('Token verification failed:', error);
+        localStorage.removeItem('token');
+        setIsLoggedIn(false);
+      }
+    };
+
+    verifyToken();
   }, []);
 
   const handleLogin = async (e) => {
@@ -53,11 +67,12 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setIsLoggedIn(false);
-    setCredentials({
-      api_key: '',
-      base_url: 'https://api.openai.com/v1',
-      model: 'gpt-3.5-turbo'
-    });
+    setIsProcessing(false);
+    // setCredentials({
+    //   api_key: '',
+    //   base_url: 'https://api.openai.com/v1',
+    //   model: 'gpt-3.5-turbo'
+    // });
   };
 
   const handleQuerySubmit = async (e) => {
@@ -75,106 +90,119 @@ function App() {
       setStatus('');
       setIsProcessing(false);
       setIsLoggedIn(false);
+      handleLogout();
       return;
     }
 
-    try {
-      // use fetch with streaming for POST requests
-      const response = await fetch('http://localhost:8000/query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ query: query })
-      });
+    if (isLoggedIn) {
+      try {
+        // fetch with streaming
+        const response = await fetch('http://localhost:8000/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ query: query })
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+        if (!response.ok) {
+          if (response.status === 401) {
+            handleLogout();
+            setError('Session expired or unauthorized. Please log in again.');
+            return;
+          }
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-      // streaming response
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-      let done = false;
+        // streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let done = false;
 
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
 
-          let lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // keep incomplete line
+            let lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // keep incomplete line
 
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
 
-            const dataStr = line.slice(6).trim();
+              const dataStr = line.slice(6).trim();
 
-            if (dataStr === '[DONE]') {
-              // final token usage comes after [DONE]
-              continue;
+              if (dataStr === '[DONE]') {
+                // final token usage comes after [DONE]
+                continue;
+              }
+
+              try {
+                const data = JSON.parse(dataStr);
+
+                switch (data.status) {
+                  case 'info':
+                    setStatus(data.message);
+                    break;
+                  case 'stream':
+                    setStatus('');
+                    setResponse(prev => prev + data.content);
+                    break;
+                  case 'token_usage':
+                    console.log("Token usage update:", data);
+                    setTokenUsage({
+                      input_tokens: data.input_tokens,
+                      output_tokens: data.output_tokens
+                    });
+                    break;
+                  case 'cancelled':
+                    setStatus('');
+                    setError(data.message);
+                    setIsProcessing(false);
+                    break
+                  case 'error':
+                    setStatus('');
+                    setError(data.message);
+                    setIsProcessing(false);
+                    break;
+                }
+              } catch (err) {
+                console.error('Invalid JSON:', dataStr, err);
+                continue; // no crash on malformed data
+              }
             }
+          }
+          done = readerDone;
+        }
 
+        // handling of remaining buffer
+        if (buffer.startsWith('data: ')) {
+          const dataStr = buffer.slice(6).trim();
+          if (dataStr !== '[DONE]') {
             try {
               const data = JSON.parse(dataStr);
-
-              switch (data.status) {
-                case 'info':
-                  setStatus(data.message);
-                  break;
-                case 'stream':
-                  setStatus('');
-                  setResponse(prev => prev + data.content);
-                  break;
-                case 'token_usage':
-                  console.log("Token usage update:", data);
-                  setTokenUsage({
-                    input_tokens: data.input_tokens,
-                    output_tokens: data.output_tokens
-                  });
-                  break;
-                case 'cancelled':
-                case 'error':
-                  setStatus('');
-                  setError(data.message);
-                  setIsProcessing(false);
-                  return;
+              if (data.status === 'token_usage') {
+                setTokenUsage({
+                  input_tokens: data.input_tokens,
+                  output_tokens: data.output_tokens
+                });
               }
             } catch (err) {
-              console.error('Invalid JSON:', dataStr, err);
-              continue; // no crash on malformed data
+              console.error('Final JSON parse error:', err);
             }
           }
         }
-        done = readerDone;
-      }
 
-      // handling of remaining buffer
-      if (buffer.startsWith('data: ')) {
-        const dataStr = buffer.slice(6).trim();
-        if (dataStr !== '[DONE]') {
-          try {
-            const data = JSON.parse(dataStr);
-            if (data.status === 'token_usage') {
-              setTokenUsage({
-                input_tokens: data.input_tokens,
-                output_tokens: data.output_tokens
-              });
-            }
-          } catch (err) {
-            console.error('Final JSON parse error:', err);
-          }
-        }
+        setIsProcessing(false);
+        setStatus('');
+      } catch (error) {
+        setStatus('');
+        setError('Query failed: ' + (error.message || 'Unknown error'));
+        setIsProcessing(false);
+        return
       }
-
-      setIsProcessing(false);
-      setStatus('');
-    } catch (error) {
-      setStatus('');
-      setError('Query failed: ' + (error.message || 'Unknown error'));
-      setIsProcessing(false);
     }
   };
 
@@ -195,8 +223,8 @@ function App() {
         setEventSource(null);
       }
       
-      setIsProcessing(false);
     } catch (error) {
+      console.log('Stop request failed: ' + (error.response?.data?.detail || error.message))
       setStatus('Stop request failed: ' + (error.response?.data?.detail || error.message));
     }
   };
@@ -267,11 +295,11 @@ function App() {
           <div className="button-group">
           {isProcessing ? (
             <button type="button" onClick={handleStop} className="stop-button">
-              x
+              {'◻️'}
             </button>
           ) : (
             <button type="submit" className="submit-button">
-              {'>'}
+              {'➤'}
             </button>
           )}
           </div>

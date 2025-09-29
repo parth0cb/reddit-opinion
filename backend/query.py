@@ -63,7 +63,7 @@ async def process_query(query: str, llm_credentials: Dict, user_id: str = "defau
 
         # step 1: get top reddit urls
         yield f"data: {json.dumps({'status': 'info', 'message': 'Finding relevant Reddit discussions...'})}\n\n"
-        urls = get_top_reddit_urls(query)
+        urls = await get_top_reddit_urls(query)
         
         if query_processor.is_cancelled(task_id):
             yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Task was cancelled'})}\n\n"
@@ -129,7 +129,7 @@ async def generate_llm_response(query: str, chunks: List[str], credentials: Dict
     """
     context = "\n\n".join(chunks)
     contextual_info = gather_contextual_info()
-    
+
     prompt = f"""
 {contextual_info}
 Context information is below.
@@ -147,24 +147,26 @@ You are a "Reddit Opinion" bot.
 Instructions:
 1. Use the context information to answer the query without mentioning the context.
 2. Apply inline citations using the format [Source: URL] at the end of relevant sentences.
-3. Be detailed and unclude all related insights in your response.
-"""
 
-    print(prompt)
+   Example:
+   - "The Nintendo Switch has sold over 125 million units globally. [Source: https://www.nintendo.com/financials/]"
+   - "Studies show that people who sleep less than 6 hours a night are more prone to heart disease. [Source: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2656292/]"
+
+3. Be detailed, and apply a lot of markdown formatting for better readability.
+"""
 
     api_key = credentials.get("api_key")
     base_url = credentials.get("base_url", "https://api.openai.com/v1")
     model = credentials.get("model", "gpt-3.5-turbo")
-    
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    
-    # counting input tokens
-    from utils import tokenizer
+
     input_tokens = len(tokenizer.encode(prompt, add_special_tokens=False))
-    
+    output_tokens = 0
+
     data = {
         "model": model,
         "messages": [
@@ -173,12 +175,7 @@ Instructions:
         ],
         "stream": True
     }
-    
-    output_tokens = 0
-    
-    yield f"data: {json.dumps({'status': 'token_usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
-    
-    # httpx for async streaming requests
+
     async with httpx.AsyncClient() as client:
         try:
             async with client.stream("POST", f"{base_url}/chat/completions", headers=headers, json=data) as response:
@@ -186,22 +183,17 @@ Instructions:
                     error_text = await response.aread()
                     yield f"data: {json.dumps({'status': 'error', 'message': f'LLM API error: {response.status_code} - {error_text.decode()}'})}\n\n"
                     return
-                
-                async for chunk in response.aiter_text():
 
+                async for chunk in response.aiter_text():
                     if query_processor.is_cancelled(task_id):
-                        yield f"data: {json.dumps({'status': 'token_usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
                         yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Task was cancelled'})}\n\n"
-                        yield "data: [DONE]\n\n"
                         return
-                    
+
                     if chunk.startswith("data: "):
                         if chunk.strip() == "data: [DONE]":
-                            yield "data: [DONE]\n\n"
-                            yield f"data: {json.dumps({'status': 'token_usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
-                            break
-                
-                        json_str = chunk[6:]  # removes "data: " prefix
+                            return  # Cleanup will happen in `finally`
+
+                        json_str = chunk[6:]
                         try:
                             stream_data = json.loads(json_str)
                             if "choices" in stream_data and len(stream_data["choices"]) > 0:
@@ -212,10 +204,16 @@ Instructions:
                                         output_tokens += len(tokenizer.encode(content, add_special_tokens=False))
                                         yield f"data: {json.dumps({'status': 'stream', 'content': content})}\n\n"
                         except json.JSONDecodeError:
-                            # skip invalid json
-                            continue
+                            continue  # Ignore bad chunks
+
+                    await asyncio.sleep(0.05)
+
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': f'Error connecting to LLM API: {str(e)}'})}\n\n"
+
+        finally:
+            yield f"data: {json.dumps({'status': 'token_usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
+            yield "data: [DONE]\n\n"
 
 def cancel_task(user_id: str = "default_user"):
     """

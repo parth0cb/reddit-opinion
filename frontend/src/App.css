@@ -181,14 +181,15 @@ body {
 
 .submit-button,
 .stop-button {
-    padding: 0.75rem 1.5rem;
+    padding: 0.75rem 1.2rem;
+    width: 60px;
     height: fit-content;
     border: none;
     border-radius: 4px;
     font-size: 1rem;
-    font-weight: bold;
     cursor: pointer;
     transition: background-color 0.2s;
+    color: white;
 }
 
 .submit-button {
@@ -211,13 +212,13 @@ body {
 }
 
 .stop-button {
-    background-color: #333;
-    color: red;
     flex: 0 0 auto;
+    border: solid 1px #f00;
+    background-color: rgba(255, 0, 0, 0.1);
 }
 
 .stop-button:hover {
-    background-color: #555;
+    background-color: #f00;
 }
 
 .spinner {
@@ -310,6 +311,11 @@ body {
 
 .response-content li {
     margin: 0.3rem 0;
+}
+
+.response-content hr {
+    border-color: #111;
+    margin: 50px 0;
 }
 
 .citation-link {
