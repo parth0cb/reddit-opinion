@@ -2,6 +2,10 @@
 
 Reddit Opinion is a full-stack web application that provides AI-powered analysis of Reddit discussions on any topic. Users can ask questions and receive informed opinions backed by relevant Reddit content, with proper citations to the original sources.
 
+## Demo
+
+https://github.com/user-attachments/assets/a8d4681f-0c16-4fc0-8069-9a39574e1b99
+
 ## How It Works
 
 1. **Query Input**: Users enter a question or topic they want to explore
